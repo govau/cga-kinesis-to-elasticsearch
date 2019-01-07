@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"flag"
 	"fmt"
 	"log"
 	"os"
@@ -18,8 +17,19 @@ import (
 	"github.com/vjeantet/grok"
 )
 
-func (a *kinesisToElastic) RunForever(parentCtx context.Context) error {
+type kinesisToElastic struct {
+	App     string
+	Stream  string
+	Table   string
+	ConnStr string
+	ESURL   string
 
+	Grok *grok.Grok
+
+	Mappings map[string]interface{}
+}
+
+func (a *kinesisToElastic) RunForever(parentCtx context.Context) error {
 	// postgres checkpointex
 	ck, err := checkpoint.New(a.App, a.Table, a.ConnStr)
 	if err != nil {
@@ -68,7 +78,6 @@ func (a *kinesisToElastic) RunForever(parentCtx context.Context) error {
 }
 
 func (a *kinesisToElastic) initElasticSearch(ctx context.Context) (*elastic.Client, error) {
-
 	esClient, err := elastic.NewSimpleClient(elastic.SetURL(a.ESURL))
 	if err != nil {
 		return nil, err
@@ -100,13 +109,11 @@ func (a *kinesisToElastic) initElasticSearch(ctx context.Context) (*elastic.Clie
 	}
 
 	return esClient, nil
-
 }
 
 func (a *kinesisToElastic) processRecord(ctx context.Context, es *elastic.Client, r *consumer.Record) error {
 	var newEvent events.Envelope
 	err := newEvent.Unmarshal(r.Data)
-
 	if err != nil {
 		return err
 	}
@@ -120,40 +127,28 @@ func (a *kinesisToElastic) processRecord(ctx context.Context, es *elastic.Client
 		return err
 	}
 
-	if matched {
-		fmt.Println(r.ApproximateArrivalTimestamp)
-
-		values, err := a.Grok.Parse("%{CFFIREHOSE}", string(newEvent.LogMessage.Message))
-		if err != nil {
-			return err
-		}
-
-		writeEvent, err := es.Index().
-			Index("log-message").
-			Type("log-message").
-			BodyJson(values).
-			Do(ctx)
-		if err != nil {
-			return err
-		}
-		log.Printf("wrote %s", writeEvent.Id)
-
+	if !matched {
+		return nil
 	}
+
+	fmt.Println(r.ApproximateArrivalTimestamp)
+	values, err := a.Grok.Parse("%{CFFIREHOSE}", string(newEvent.LogMessage.Message))
+	if err != nil {
+		return err
+	}
+
+	writeEvent, err := es.Index().
+		Index("log-message").
+		Type("log-message").
+		BodyJson(values).
+		Do(ctx)
+	if err != nil {
+		return err
+	}
+	log.Printf("wrote %s", writeEvent.Id)
 
 	// continue scanning
 	return nil
-}
-
-type kinesisToElastic struct {
-	App     string
-	Stream  string
-	Table   string
-	ConnStr string
-	ESURL   string
-
-	Grok *grok.Grok
-
-	Mappings map[string]interface{}
 }
 
 func mustParseJSON(p string) map[string]interface{} {
@@ -179,8 +174,22 @@ func mustGrok(config *grok.Config) *grok.Grok {
 	}
 	return rv
 }
+
+func mustEnv(name string) string {
+	rv, ok := os.LookupEnv(name)
+	if !ok {
+		panic(fmt.Sprintf("must set %s in env", name))
+	}
+	return rv
+}
+
 func main() {
-	app := &kinesisToElastic{
+	err := (&kinesisToElastic{
+		App:     mustEnv("APP_NAME"),
+		Stream:  mustEnv("STREAM_NAME"),
+		Table:   mustEnv("TABLE_NAME"),
+		ConnStr: mustEnv("CONNECTION_STRING"),
+		ESURL:   mustEnv("ES_URL"),
 		Grok: mustGrok(&grok.Config{
 			Patterns: map[string]string{
 				"RTRTIME":    `%{YEAR}-%{MONTHNUM}-%{MONTHDAY}T%{TIME}+%{INT}`,
@@ -188,15 +197,8 @@ func main() {
 			},
 		}),
 		Mappings: mustParseJSON("index-mappings-logMessage.json"),
+	}).RunForever(context.Background())
+	if err != nil {
+		log.Fatal(err)
 	}
-
-	flag.StringVar(&app.App, "app", "", "App name")
-	flag.StringVar(&app.Stream, "stream", "", "Stream name")
-	flag.StringVar(&app.Table, "table", "", "Table name")
-	flag.StringVar(&app.ConnStr, "connection", "", "Connection String")
-	flag.StringVar(&app.ESURL, "esurl", "http://127.0.0.1:9200", "Elastic Search URL")
-
-	flag.Parse()
-
-	log.Fatal(app.RunForever(context.Background()))
 }
