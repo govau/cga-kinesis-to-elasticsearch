@@ -1,0 +1,86 @@
+{
+	"template" : "log-message",
+	"settings": {},
+	"order": 203,
+	"mappings" : {
+	
+		"log-message": {
+		"properties": {
+			"@cf": {
+			"type": "object",
+			"dynamic": true,
+			"properties": {
+				"app":          {"type":"keyword","index":true},
+				"app_id":       {"type":"keyword","index":true},
+				"app_instance": { "type": "long" },
+				"org":          {"type":"keyword","index":true},
+				"org_id":       {"type":"keyword","index":true},
+				"space":        {"type":"keyword","index":true},
+				"space_id":     {"type":"keyword","index":true}
+			}
+			},
+			"logmessage": {
+			"type": "object",
+			"dynamic": true,
+			"properties": {
+				"message_type":   {"type":"keyword","index":true}
+			}
+			},
+			"rtr": {
+			"type": "object",
+			"dynamic": true,
+			"properties": {
+				"response_time_ms":       { "type": "long" },
+				"remote_addr":            {"type":"keyword","index":true},
+				"x_forwarded_proto":      {"type":"keyword","index":true},
+				"x_forwarded_for":        {"type":"keyword","index":true},
+				"vcap_request_id":        {"type":"keyword","index":true},
+				"body_bytes_sent":        { "type": "long" },
+				"hostname":               {"type":"keyword","index":true},
+				"timestamp":              {"type":"keyword","index":true},
+				"request_bytes_received": { "type": "long" },
+				"verb":                   {"type":"keyword","index":true},
+				"path":                   {"type":"keyword","index":true},
+				"http_spec":              {"type":"keyword","index":true},
+				"referer":                {"type":"keyword","index":true},
+				"http_user_agent":        {"type":"keyword","index":true},
+				"status":                 { "type": "long" },
+				"src": {
+				"type": "object",
+				"dynamic": true,
+				"properties": {
+					"host": {"type":"keyword","index":true},
+					"port": { "type": "long" }
+				}
+				},
+				"dst": {
+				"type": "object",
+				"dynamic": true,
+				"properties": {
+					"host": {"type":"keyword","index":true},
+					"port": { "type": "long" }
+				}
+				},
+				"app": {
+				"type": "object",
+				"dynamic": true,
+				"properties": {
+					"id": {"type":"keyword","index":true},
+					"index": { "type": "long" }
+				}
+				}
+			}
+			},
+			"geoip"  : {
+			"type" : "object",
+			"dynamic": true,
+			"properties": {
+				"location": { "type": "geo_point" },
+				"timezone": {"type":"keyword","index":true}
+			}
+			}
+		}
+		}
+
+	}
+}
