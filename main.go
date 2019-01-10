@@ -7,22 +7,30 @@ import (
 	"log"
 	"os"
 	"os/signal"
-	"regexp"
+	"strings"
 	"syscall"
 
 	"github.com/cloudfoundry/sonde-go/events"
 	consumer "github.com/harlow/kinesis-consumer"
 	checkpoint "github.com/harlow/kinesis-consumer/checkpoint/postgres"
-	"github.com/olivere/elastic"
+
 	"github.com/vjeantet/grok"
+
+	"github.com/aws/aws-sdk-go/aws/credentials"
+
+	"github.com/olivere/elastic"
+	aws "github.com/olivere/elastic/aws/v4"
 )
 
 type kinesisToElastic struct {
-	App     string
-	Stream  string
-	Table   string
-	ConnStr string
-	ESURL   string
+	App         string
+	Stream      string
+	Table       string
+	ConnStr     string
+	ESURL       string
+	ESregion    string
+	ESaccesskey string
+	ESsecretkey string
 
 	Grok *grok.Grok
 
@@ -78,17 +86,37 @@ func (a *kinesisToElastic) RunForever(parentCtx context.Context) error {
 }
 
 func (a *kinesisToElastic) initElasticSearch(ctx context.Context) (*elastic.Client, error) {
-	esClient, err := elastic.NewSimpleClient(elastic.SetURL(a.ESURL))
-	if err != nil {
-		return nil, err
+	var opts []elastic.ClientOptionFunc
+
+	if strings.Contains(a.ESURL, ".es.amazonaws.com") {
+		signingClient := aws.NewV4SigningClient(credentials.NewStaticCredentials(
+			a.ESaccesskey,
+			a.ESsecretkey,
+			"",
+		), a.ESregion)
+
+		opts = []elastic.ClientOptionFunc{
+			elastic.SetURL(a.ESURL),
+			elastic.SetSniff(false),
+			elastic.SetHealthcheck(false),
+			elastic.SetScheme("https"),
+			elastic.SetHttpClient(signingClient),
+		}
+
+	} else {
+		opts = []elastic.ClientOptionFunc{
+			elastic.SetURL(a.ESURL),
+			elastic.SetSniff(false),
+			elastic.SetHealthcheck(false),
+			elastic.SetScheme("http"),
+		}
 	}
 
-	esVersion, err := esClient.ElasticsearchVersion(a.ESURL)
+	// Create an Elasticsearch client
+	esClient, err := elastic.NewClient(opts...)
 	if err != nil {
-		esClient.Stop()
 		return nil, err
 	}
-	log.Println("Elasticsearch version", esVersion)
 
 	// Use the IndexExists service to check if a specified index exists.
 	exists, err := esClient.IndexExists("log-message").Do(ctx)
@@ -122,16 +150,12 @@ func (a *kinesisToElastic) processRecord(ctx context.Context, es *elastic.Client
 		return nil
 	}
 
-	matched, err := regexp.MatchString("x_b3_traceid", string(newEvent.LogMessage.Message))
-	if err != nil {
-		return err
-	}
+	matched := strings.Contains(string(newEvent.LogMessage.Message), "x_b3_traceid")
 
 	if !matched {
 		return nil
 	}
 
-	fmt.Println(r.ApproximateArrivalTimestamp)
 	values, err := a.Grok.Parse("%{CFFIREHOSE}", string(newEvent.LogMessage.Message))
 	if err != nil {
 		return err
@@ -145,7 +169,7 @@ func (a *kinesisToElastic) processRecord(ctx context.Context, es *elastic.Client
 	if err != nil {
 		return err
 	}
-	log.Printf("wrote %s", writeEvent.Id)
+	log.Printf("wrote event id %s - kinesis arrival time %s", writeEvent.Id, r.ApproximateArrivalTimestamp)
 
 	// continue scanning
 	return nil
@@ -184,12 +208,22 @@ func mustEnv(name string) string {
 }
 
 func main() {
+	// Check that AWS creds for kinesis are set
+	mustEnv("AWS_REGION")
+	mustEnv("AWS_ACCESS_KEY_ID")
+	mustEnv("AWS_SECRET_ACCESS_KEY")
+
 	err := (&kinesisToElastic{
 		App:     mustEnv("APP_NAME"),
 		Stream:  mustEnv("STREAM_NAME"),
 		Table:   mustEnv("TABLE_NAME"),
 		ConnStr: mustEnv("CONNECTION_STRING"),
 		ESURL:   mustEnv("ES_URL"),
+
+		ESregion:    os.Getenv("ES_AWS_REGION"),
+		ESaccesskey: os.Getenv("ES_AWS_ACCESS_KEY_ID"),
+		ESsecretkey: os.Getenv("ES_AWS_SECRET_ACCESS_KEY"),
+
 		Grok: mustGrok(&grok.Config{
 			Patterns: map[string]string{
 				"RTRTIME":    `%{YEAR}-%{MONTHNUM}-%{MONTHDAY}T%{TIME}+%{INT}`,
