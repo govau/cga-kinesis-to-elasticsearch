@@ -106,10 +106,11 @@
   revision = "60711f1a8329503b04e1c88535f419d0bb440bff"
 
 [[projects]]
-  digest = "1:e9ba3a532b2aedc8f8dcc06e136f794d496be02eb2ab17fb56e4b30152d0cfc1"
+  digest = "1:a4685fac9d8029adf81c4c05331d4be3a6b8f5b4680831ae38bf26dc3ecab543"
   name = "github.com/olivere/elastic"
   packages = [
     ".",
+    "aws/v4",
     "config",
     "uritemplates",
   ]
@@ -137,10 +138,12 @@
   analyzer-name = "dep"
   analyzer-version = 1
   input-imports = [
+    "github.com/aws/aws-sdk-go/aws/credentials",
     "github.com/cloudfoundry/sonde-go/events",
     "github.com/harlow/kinesis-consumer",
     "github.com/harlow/kinesis-consumer/checkpoint/postgres",
     "github.com/olivere/elastic",
+    "github.com/olivere/elastic/aws/v4",
     "github.com/vjeantet/grok",
   ]
   solver-name = "gps-cdcl"
