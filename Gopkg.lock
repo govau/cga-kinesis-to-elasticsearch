@@ -2,7 +2,7 @@
 
 
 [[projects]]
-  digest = "1:b30bf37635f6a0cacf20580872fd33671019e6f89b4addd43a7b1869cbebafa7"
+  digest = "1:5ce63d76623da47a56288f1d1619f47ab15932779c0b9740a32a7a681094bfcc"
   name = "github.com/aws/aws-sdk-go"
   packages = [
     "aws",
@@ -16,6 +16,7 @@
     "aws/credentials/endpointcreds",
     "aws/credentials/processcreds",
     "aws/credentials/stscreds",
+    "aws/crr",
     "aws/csm",
     "aws/defaults",
     "aws/ec2metadata",
@@ -35,6 +36,9 @@
     "private/protocol/query/queryutil",
     "private/protocol/rest",
     "private/protocol/xml/xmlutil",
+    "service/dynamodb",
+    "service/dynamodb/dynamodbattribute",
+    "service/dynamodb/dynamodbiface",
     "service/kinesis",
     "service/kinesis/kinesisiface",
     "service/sts",
@@ -64,10 +68,11 @@
   version = "v1.2.0"
 
 [[projects]]
-  digest = "1:8c6b50b181b17ed0a7c8682e2f69664c5ea72991c47791014b7ee472ec1b3ead"
+  digest = "1:89781643b5af46c7ca9ed6cf8528c940e95f15e86681c62a06ee312af4500fbe"
   name = "github.com/harlow/kinesis-consumer"
   packages = [
     ".",
+    "checkpoint/ddb",
     "checkpoint/postgres",
   ]
   pruneopts = "UT"
@@ -138,9 +143,24 @@
   analyzer-name = "dep"
   analyzer-version = 1
   input-imports = [
+    "github.com/aws/aws-sdk-go/aws",
+    "github.com/aws/aws-sdk-go/aws/awserr",
+    "github.com/aws/aws-sdk-go/aws/awsutil",
+    "github.com/aws/aws-sdk-go/aws/client",
+    "github.com/aws/aws-sdk-go/aws/client/metadata",
     "github.com/aws/aws-sdk-go/aws/credentials",
+    "github.com/aws/aws-sdk-go/aws/crr",
+    "github.com/aws/aws-sdk-go/aws/request",
+    "github.com/aws/aws-sdk-go/aws/session",
+    "github.com/aws/aws-sdk-go/aws/signer/v4",
+    "github.com/aws/aws-sdk-go/private/protocol",
+    "github.com/aws/aws-sdk-go/private/protocol/jsonrpc",
+    "github.com/aws/aws-sdk-go/service/dynamodb",
+    "github.com/aws/aws-sdk-go/service/dynamodb/dynamodbattribute",
+    "github.com/aws/aws-sdk-go/service/dynamodb/dynamodbiface",
     "github.com/cloudfoundry/sonde-go/events",
     "github.com/harlow/kinesis-consumer",
+    "github.com/harlow/kinesis-consumer/checkpoint/ddb",
     "github.com/harlow/kinesis-consumer/checkpoint/postgres",
     "github.com/olivere/elastic",
     "github.com/olivere/elastic/aws/v4",

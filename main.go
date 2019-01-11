@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -12,7 +13,8 @@ import (
 
 	"github.com/cloudfoundry/sonde-go/events"
 	consumer "github.com/harlow/kinesis-consumer"
-	checkpoint "github.com/harlow/kinesis-consumer/checkpoint/postgres"
+	checkpointddb "github.com/harlow/kinesis-consumer/checkpoint/ddb"
+	checkpointpg "github.com/harlow/kinesis-consumer/checkpoint/postgres"
 
 	"github.com/vjeantet/grok"
 
@@ -23,14 +25,15 @@ import (
 )
 
 type kinesisToElastic struct {
-	App         string
-	Stream      string
-	Table       string
-	ConnStr     string
-	ESURL       string
-	ESregion    string
-	ESaccesskey string
-	ESsecretkey string
+	CheckpointProvider string
+	App                string
+	Stream             string
+	Table              string
+	ConnStr            string
+	ESURL              string
+	ESregion           string
+	ESaccesskey        string
+	ESsecretkey        string
 
 	Grok *grok.Grok
 
@@ -38,12 +41,26 @@ type kinesisToElastic struct {
 }
 
 func (a *kinesisToElastic) RunForever(parentCtx context.Context) error {
-	// postgres checkpointex
-	ck, err := checkpoint.New(a.App, a.Table, a.ConnStr)
-	if err != nil {
-		return err
+	var ck consumer.Checkpoint
+	// setup checkpoint with either Postgres or DynamoDB
+	switch a.CheckpointProvider {
+	case "postgres":
+		pgck, err := checkpointpg.New(a.App, a.Table, a.ConnStr)
+		if err != nil {
+			return err
+		}
+		defer pgck.Shutdown()
+		ck = pgck
+	case "dynamo":
+		ddbck, err := checkpointddb.New(a.App, a.Table)
+		if err != nil {
+			return err
+		}
+		defer ddbck.Shutdown()
+		ck = ddbck
+	default:
+		return errors.New("unknown checkpoint provider. Please use 'postgres' or 'dynamo'")
 	}
-	defer ck.Shutdown()
 
 	// consumer
 	c, err := consumer.New(
@@ -74,11 +91,16 @@ func (a *kinesisToElastic) RunForever(parentCtx context.Context) error {
 	}
 	defer client.Stop()
 
+	var eventCounter int
 	// scan stream
 	return c.Scan(ctx, func(r *consumer.Record) consumer.ScanStatus {
 		err := a.processRecord(ctx, client, r)
 		if err != nil {
 			log.Println(err)
+		}
+		eventCounter++
+		if eventCounter%1000 == 0 {
+			log.Printf("written %d records", eventCounter)
 		}
 		return consumer.ScanStatus{Error: err}
 	})
@@ -141,6 +163,7 @@ func (a *kinesisToElastic) initElasticSearch(ctx context.Context) (*elastic.Clie
 
 func (a *kinesisToElastic) processRecord(ctx context.Context, es *elastic.Client, r *consumer.Record) error {
 	var newEvent events.Envelope
+
 	err := newEvent.Unmarshal(r.Data)
 	if err != nil {
 		return err
@@ -161,7 +184,7 @@ func (a *kinesisToElastic) processRecord(ctx context.Context, es *elastic.Client
 		return err
 	}
 
-	writeEvent, err := es.Index().
+	_, err = es.Index().
 		Index("log-message").
 		Type("log-message").
 		BodyJson(values).
@@ -169,8 +192,6 @@ func (a *kinesisToElastic) processRecord(ctx context.Context, es *elastic.Client
 	if err != nil {
 		return err
 	}
-	log.Printf("wrote event id %s - kinesis arrival time %s", writeEvent.Id, r.ApproximateArrivalTimestamp)
-
 	// continue scanning
 	return nil
 }
@@ -208,17 +229,14 @@ func mustEnv(name string) string {
 }
 
 func main() {
-	// Check that AWS creds for kinesis are set
-	mustEnv("AWS_REGION")
-	mustEnv("AWS_ACCESS_KEY_ID")
-	mustEnv("AWS_SECRET_ACCESS_KEY")
-
 	err := (&kinesisToElastic{
-		App:     mustEnv("APP_NAME"),
-		Stream:  mustEnv("STREAM_NAME"),
-		Table:   mustEnv("TABLE_NAME"),
-		ConnStr: mustEnv("CONNECTION_STRING"),
-		ESURL:   mustEnv("ES_URL"),
+		App:                mustEnv("APP_NAME"),
+		CheckpointProvider: mustEnv("CK_PROVIDER"),
+		Stream:             mustEnv("STREAM_NAME"),
+		Table:              mustEnv("TABLE_NAME"),
+		ESURL:              mustEnv("ES_URL"),
+
+		ConnStr: os.Getenv("CONNECTION_STRING"),
 
 		ESregion:    os.Getenv("ES_AWS_REGION"),
 		ESaccesskey: os.Getenv("ES_AWS_ACCESS_KEY_ID"),
