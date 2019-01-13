@@ -1,6 +1,6 @@
 ---
 jobs:
-- name: build-container-image
+- name: build-kinesis-to-elasticsearch
   serial: true
   plan:
   - do:
@@ -23,16 +23,16 @@ jobs:
         text: |
           :x: $BUILD_JOB_NAME FAILED
           <$ATC_EXTERNAL_URL/teams/$BUILD_TEAM_NAME/pipelines/$BUILD_PIPELINE_NAME/jobs/$BUILD_JOB_NAME/builds/$BUILD_NAME|View build details>
-- name: deploy
+- name: deploy-kinesis-to-elasticsearch
   serial: true
   plan:
   - do:
     - get: src
-      passed: [build-container-image]
+      passed: [build-kinesis-to-elasticsearch]
     - get: ci
       trigger: true
     - get: img
-      passed: [build-container-image]
+      passed: [build-kinesis-to-elasticsearch]
       params: {skip_download: true}
       trigger: true
     - task: build
@@ -56,14 +56,14 @@ resources:
 - name: src
   type: git
   source:
-    uri: https://github.com/govau/cga-kinesis-to-elastic
+    uri: https://github.com/govau/cga-kinesis-to-elasticsearch
     branch: master
     ignore_paths:
     - ci/**
 - name: ci
   type: git
   source:
-    uri: https://github.com/govau/cga-kinesis-to-elastic
+    uri: https://github.com/govau/cga-kinesis-to-elasticsearch
     branch: master
     paths:
     - ci/**
@@ -71,7 +71,6 @@ resources:
   type: docker-image
   source:
     repository: ((aws_repository))
-    # aws_access_key_id:
     aws_access_key_id: ((aws_access_key_id))
     aws_secret_access_key: ((aws_secret_access_key))
 - name: slack

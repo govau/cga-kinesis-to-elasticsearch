@@ -29,10 +29,6 @@ spec:
         resources: {limits: {memory: "64Mi", cpu: "100m"}}
         envFrom:
         - secretRef: {name: kinesis-to-elasticsearch}
-        - secretRef: {name: shared-firehose-to-kinesis}
-        env:
-        - name: SYSTEM
-          value: ${ENV}.cld.gov.au
         ports:
         - name: http
           containerPort: 8080 # /metrics
