@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"strings"
@@ -15,6 +16,8 @@ import (
 	consumer "github.com/harlow/kinesis-consumer"
 	checkpointddb "github.com/harlow/kinesis-consumer/checkpoint/ddb"
 	checkpointpg "github.com/harlow/kinesis-consumer/checkpoint/postgres"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"github.com/vjeantet/grok"
 
@@ -23,6 +26,20 @@ import (
 	"github.com/olivere/elastic"
 	aws "github.com/olivere/elastic/aws/v4"
 )
+
+var (
+	errorCount = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "kinesis_to_elasticsearch_errors_count",
+	})
+	successCount = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "kinesis_to_elasticsearch_sent_count",
+	})
+)
+
+func init() {
+	prometheus.MustRegister(errorCount)
+	prometheus.MustRegister(successCount)
+}
 
 type kinesisToElastic struct {
 	CheckpointProvider string
@@ -34,6 +51,7 @@ type kinesisToElastic struct {
 	ESregion           string
 	ESaccesskey        string
 	ESsecretkey        string
+	MetricsListen      string
 
 	Grok *grok.Grok
 
@@ -91,16 +109,22 @@ func (a *kinesisToElastic) RunForever(parentCtx context.Context) error {
 	}
 	defer client.Stop()
 
-	var eventCounter int
+	go func() {
+		http.Handle("/metrics", promhttp.Handler())
+		err := http.ListenAndServe(a.MetricsListen, nil)
+		if err != nil {
+			log.Fatal(err)
+		}
+	}()
+
 	// scan stream
 	return c.Scan(ctx, func(r *consumer.Record) consumer.ScanStatus {
 		err := a.processRecord(ctx, client, r)
-		if err != nil {
+		if err == nil {
+			successCount.Inc()
+		} else {
+			errorCount.Inc()
 			log.Println(err)
-		}
-		eventCounter++
-		if eventCounter%1000 == 0 {
-			log.Printf("written %d records", eventCounter)
 		}
 		return consumer.ScanStatus{Error: err}
 	})
@@ -228,6 +252,14 @@ func mustEnv(name string) string {
 	return rv
 }
 
+func envWithDefault(name, defaultValue string) string {
+	rv, ok := os.LookupEnv(name)
+	if !ok {
+		return defaultValue
+	}
+	return rv
+}
+
 func main() {
 	err := (&kinesisToElastic{
 		App:                mustEnv("APP_NAME"),
@@ -241,6 +273,8 @@ func main() {
 		ESregion:    os.Getenv("ES_AWS_REGION"),
 		ESaccesskey: os.Getenv("ES_AWS_ACCESS_KEY_ID"),
 		ESsecretkey: os.Getenv("ES_AWS_SECRET_ACCESS_KEY"),
+
+		MetricsListen: envWithDefault("METRICS_LISTEN", ":8080"),
 
 		Grok: mustGrok(&grok.Config{
 			Patterns: map[string]string{
