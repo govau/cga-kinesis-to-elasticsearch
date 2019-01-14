@@ -36,11 +36,25 @@ subjects:
 - name: "${ci_user}"
   namespace: "${NAMESPACE}"
   kind: ServiceAccount
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: "${NAMESPACE}"
+  namespace: "${NAMESPACE}"
+  labels:
+    release: prometheus-operator
+spec:
+  selector:
+    matchLabels:
+      monitor: me
+  endpoints:
+  - port: web
 EOF
 )
 
 secret="$(kubectl get "serviceaccount/${ci_user}" --namespace "${NAMESPACE}" -o=jsonpath='{.secrets[0].name}')"
-token="$(kubectl get secret "${secret}" --namespace "${NAMESPACE}" -o=jsonpath='{.data.token}' | base64 -D)"
+token="$(kubectl get secret "${secret}" --namespace "${NAMESPACE}" -o=jsonpath='{.data.token}' | base64 --decode)"
 
 cur_context="$(kubectl config view -o=jsonpath='{.current-context}' --flatten=true)"
 cur_cluster="$(kubectl config view -o=jsonpath="{.contexts[?(@.name==\"${cur_context}\")].context.cluster}" --flatten=true)"
@@ -89,6 +103,7 @@ echo "${kubeconfig}"
 echo 'EOKUBECONFIG'
 echo ')"'
 echo
+echo "Use in concourse:"
 echo "echo \$KUBECONFIG > k"
 echo "export KUBECONFIG=k"
 echo "kubectl get all"
