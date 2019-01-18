@@ -52,6 +52,7 @@ type kinesisToElastic struct {
 	ESaccesskey        string
 	ESsecretkey        string
 	MetricsListen      string
+	ESIndices          []string
 
 	Grok *grok.Grok
 
@@ -164,22 +165,24 @@ func (a *kinesisToElastic) initElasticSearch(ctx context.Context) (*elastic.Clie
 		return nil, err
 	}
 
-	// Use the IndexExists service to check if a specified index exists.
-	exists, err := esClient.IndexExists("log-message").Do(ctx)
-	if err != nil {
-		esClient.Stop()
-		return nil, err
-	}
-	if exists {
-		// index exists, we are happy
-		return esClient, nil
-	}
-
-	// Create a new index.
-	_, err = esClient.CreateIndex("log-message").BodyJson(a.Mappings).Do(ctx)
-	if err != nil {
-		esClient.Stop()
-		return nil, err
+	for _, index := range a.ESIndices {
+		exists, err := esClient.IndexExists(index).Do(ctx)
+		if err != nil {
+			esClient.Stop()
+			return nil, err
+		}
+		if exists {
+			// index exists, we are happy
+			log.Printf("index exists %s", index)
+		} else {
+			// Create a new index.
+			_, err = esClient.CreateIndex(index).Do(ctx)
+			if err != nil {
+				esClient.Stop()
+				return nil, err
+			}
+			log.Printf("successfully created index %s", index)
+		}
 	}
 
 	return esClient, nil
@@ -187,6 +190,8 @@ func (a *kinesisToElastic) initElasticSearch(ctx context.Context) (*elastic.Clie
 
 func (a *kinesisToElastic) processRecord(ctx context.Context, es *elastic.Client, r *consumer.Record) error {
 	var newEvent events.Envelope
+	var values map[string]string
+	var esIndex string
 
 	err := newEvent.Unmarshal(r.Data)
 	if err != nil {
@@ -197,20 +202,43 @@ func (a *kinesisToElastic) processRecord(ctx context.Context, es *elastic.Client
 		return nil
 	}
 
-	matched := strings.Contains(string(newEvent.LogMessage.Message), "x_b3_traceid")
-
-	if !matched {
+	switch {
+	case strings.HasPrefix(string(newEvent.LogMessage.GetSourceInstance()), "/var/log/"):
+		values, err = a.Grok.Parse("%{GENERIC}", string(newEvent.LogMessage.Message))
+		if err != nil {
+			return err
+		}
+		esIndex = "linux_logs"
+	case strings.Contains(string(newEvent.LogMessage.GetSourceInstance()), "/var/vcap/sys/log/gorouter/access.log"):
+		values, err = a.Grok.Parse("%{ROUTERACCESS}", string(newEvent.LogMessage.Message))
+		if err != nil {
+			return err
+		}
+		esIndex = "gorouter_access"
+	case strings.Contains(string(newEvent.LogMessage.GetSourceInstance()), "/var/vcap/sys/log/director/"):
+		values, err = a.Grok.Parse("%{GENERIC}", string(newEvent.LogMessage.Message))
+		if err != nil {
+			return err
+		}
+		esIndex = "bosh_director"
+	case strings.HasPrefix(string(newEvent.LogMessage.GetSourceInstance()), "/var/vcap/sys/log/"):
+		values, err = a.Grok.Parse("%{GENERIC}", string(newEvent.LogMessage.Message))
+		if err != nil {
+			return err
+		}
+		esIndex = "var_vcap_sys_log"
+	default:
+		// log.Println(newEvent.LogMessage.GetSourceInstance())
+		// log.Println(string(newEvent.LogMessage.Message))
 		return nil
 	}
 
-	values, err := a.Grok.Parse("%{CFFIREHOSE}", string(newEvent.LogMessage.Message))
-	if err != nil {
-		return err
-	}
+	values["kinesis_time"] = r.ApproximateArrivalTimestamp.String()
+	values["file_path"] = newEvent.LogMessage.GetSourceInstance()
 
 	_, err = es.Index().
-		Index("log-message").
-		Type("log-message").
+		Index(esIndex).
+		Type(esIndex).
 		BodyJson(values).
 		Do(ctx)
 	if err != nil {
@@ -273,13 +301,19 @@ func main() {
 		ESregion:    os.Getenv("ES_AWS_REGION"),
 		ESaccesskey: os.Getenv("ES_AWS_ACCESS_KEY_ID"),
 		ESsecretkey: os.Getenv("ES_AWS_SECRET_ACCESS_KEY"),
+		ESIndices:   []string{"linux_logs", "gorouter_access", "bosh_director", "var_vcap_sys_log"},
 
 		MetricsListen: envWithDefault("METRICS_LISTEN", ":8080"),
 
 		Grok: mustGrok(&grok.Config{
 			Patterns: map[string]string{
-				"RTRTIME":    `%{YEAR}-%{MONTHNUM}-%{MONTHDAY}T%{TIME}+%{INT}`,
-				"CFFIREHOSE": `%{HOSTNAME:rtr_hostname} - \[%{RTRTIME:rtr_time}\] "%{WORD:rtr_verb} %{URIPATHPARAM:rtr_path} %{PROG:rtr_http_spec}" %{BASE10NUM:rtr_status:int} %{BASE10NUM:rtr_request_bytes_received:int} %{BASE10NUM:rtr_body_bytes_sent:int} "%{GREEDYDATA:rtr_referer}" "%{GREEDYDATA:rtr_http_user_agent}" "%{IPORHOST:rtr_src_host}:%{POSINT:rtr_src_port:int}" "%{IPORHOST:rtr_dst_host}:%{POSINT:rtr_dst_port:int}" x_forwarded_for:"%{GREEDYDATA:rtr_x_forwarded_for}" x_forwarded_proto:"%{GREEDYDATA:rtr_x_forwarded_proto}" vcap_request_id:"%{NOTSPACE:rtr_vcap_request_id}" response_time:%{NUMBER:rtr_response_time_sec:float} app_id:"%{NOTSPACE:rtr_app_id}" app_index:"%{BASE10NUM:rtr_app_index:int}"`,
+				"GENERIC":         `%{GREEDYDATA:log_event}`,
+				"ROUTERTIME":      `%{YEAR}-%{MONTHNUM}-%{MONTHDAY}T%{TIME}+%{INT}`,
+				"ROUTERACCESS":    `%{HOSTNAME:rtr_hostname} - \[%{ROUTERTIME:rtr_time}\] "%{WORD:rtr_verb} %{URIPATHPARAM:rtr_path} %{PROG:rtr_http_spec}" %{BASE10NUM:rtr_status:int} %{BASE10NUM:rtr_request_bytes_received:int} %{BASE10NUM:rtr_body_bytes_sent:int} "%{GREEDYDATA:rtr_referer}" "%{GREEDYDATA:rtr_http_user_agent}" "%{IPORHOST:rtr_src_host}:%{POSINT:rtr_src_port:int}" "%{IPORHOST:rtr_dst_host}:%{POSINT:rtr_dst_port:int}" x_forwarded_for:"%{GREEDYDATA:rtr_x_forwarded_for}" x_forwarded_proto:"%{GREEDYDATA:rtr_x_forwarded_proto}" vcap_request_id:"%{NOTSPACE:rtr_vcap_request_id}" response_time:%{NUMBER:rtr_response_time_sec:float} app_id:"%{NOTSPACE:rtr_app_id}" app_index:"%{BASE10NUM:rtr_app_index:int}" x_b3_traceid:"%{NOTSPACE:x_b3_traceid}" x_b3_spanid:"%{NOTSPACE:x_b3_spanid}" x_b3_parentspanid:"%{NOTSPACE:x_b3_parentspanid}"`,
+				"BOSHTIME":        `%{MONTHDAY}\/%{MONTH}\/%{YEAR}:%{TIME} +%{INT}`,
+				"BOSHDIRECTOROUT": `D, \[%{ROUTERTIME:director_time} .*\] %{GREEDYDATA:bosh_director_out}`,
+				"BOSHDIRECTORERR": `%{IP:client_ip} - - \[%{BOSHTIME:director_time}\] %{GREEDYDATA:bosh_director_err}`,
+				"LINUXMESSAGES":   `%{TIMESTAMP_ISO8601:os_time} %{GREEDYDATA:var_log_messages}`,
 			},
 		}),
 		Mappings: mustParseJSON("index-mappings-logMessage.json"),
