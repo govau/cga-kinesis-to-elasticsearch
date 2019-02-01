@@ -57,6 +57,7 @@ type kinesisToElastic struct {
 	Grok *grok.Grok
 
 	Mappings map[string]interface{}
+	indices  map[string]*elastic.IndexService
 }
 
 func (a *kinesisToElastic) RunForever(parentCtx context.Context) error {
@@ -104,11 +105,13 @@ func (a *kinesisToElastic) RunForever(parentCtx context.Context) error {
 		cancel()
 	}()
 
-	client, err := a.initElasticSearch(ctx)
+	client, err := a.createElasticSearchClient(ctx)
 	if err != nil {
 		return err
 	}
 	defer client.Stop()
+
+	a.indices = make(map[string]*elastic.IndexService)
 
 	go func() {
 		http.Handle("/metrics", promhttp.Handler())
@@ -132,7 +135,7 @@ func (a *kinesisToElastic) RunForever(parentCtx context.Context) error {
 
 }
 
-func (a *kinesisToElastic) initElasticSearch(ctx context.Context) (*elastic.Client, error) {
+func (a *kinesisToElastic) createElasticSearchClient(ctx context.Context) (*elastic.Client, error) {
 	var opts []elastic.ClientOptionFunc
 
 	if strings.Contains(a.ESURL, ".es.amazonaws.com") {
@@ -164,34 +167,38 @@ func (a *kinesisToElastic) initElasticSearch(ctx context.Context) (*elastic.Clie
 	if err != nil {
 		return nil, err
 	}
+	return esClient, nil
+}
 
-	for _, index := range a.ESIndices {
-		exists, err := esClient.IndexExists(index).Do(ctx)
+// not thread safe
+func (a *kinesisToElastic) getIndex(ctx context.Context, es *elastic.Client, indexName string) (*elastic.IndexService, error) {
+	rv, ok := a.indices[indexName]
+	if ok {
+		return rv, nil
+	}
+	exists, err := es.IndexExists(indexName).Do(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if !exists {
+		// Create a new index.
+		_, err = es.CreateIndex(indexName).Do(ctx)
 		if err != nil {
-			esClient.Stop()
 			return nil, err
 		}
-		if exists {
-			// index exists, we are happy
-			log.Printf("index exists %s", index)
-		} else {
-			// Create a new index.
-			_, err = esClient.CreateIndex(index).Do(ctx)
-			if err != nil {
-				esClient.Stop()
-				return nil, err
-			}
-			log.Printf("successfully created index %s", index)
-		}
+		log.Printf("successfully created index %s", indexName)
 	}
 
-	return esClient, nil
+	rv = es.Index().Index(indexName)
+	a.indices[indexName] = rv
+	return rv, nil
 }
 
 func (a *kinesisToElastic) processRecord(ctx context.Context, es *elastic.Client, r *consumer.Record) error {
 	var newEvent events.Envelope
 	var values map[string]string
 	var esIndex string
+	dateStamp := string(r.ApproximateArrivalTimestamp.Format("2006-01-02"))
 
 	err := newEvent.Unmarshal(r.Data)
 	if err != nil {
@@ -208,25 +215,25 @@ func (a *kinesisToElastic) processRecord(ctx context.Context, es *elastic.Client
 		if err != nil {
 			return err
 		}
-		esIndex = "linux_logs"
+		esIndex = "linux_logs-" + dateStamp
 	case strings.Contains(string(newEvent.LogMessage.GetSourceInstance()), "/var/vcap/sys/log/gorouter/access.log"):
 		values, err = a.Grok.Parse("%{ROUTERACCESS}", string(newEvent.LogMessage.Message))
 		if err != nil {
 			return err
 		}
-		esIndex = "gorouter_access"
+		esIndex = "gorouter_access-" + dateStamp
 	case strings.Contains(string(newEvent.LogMessage.GetSourceInstance()), "/var/vcap/sys/log/director/"):
 		values, err = a.Grok.Parse("%{GENERIC}", string(newEvent.LogMessage.Message))
 		if err != nil {
 			return err
 		}
-		esIndex = "bosh_director"
+		esIndex = "bosh_director-" + dateStamp
 	case strings.HasPrefix(string(newEvent.LogMessage.GetSourceInstance()), "/var/vcap/sys/log/"):
 		values, err = a.Grok.Parse("%{GENERIC}", string(newEvent.LogMessage.Message))
 		if err != nil {
 			return err
 		}
-		esIndex = "var_vcap_sys_log"
+		esIndex = "var_vcap_sys_log-" + dateStamp
 	default:
 		// log.Println(newEvent.LogMessage.GetSourceInstance())
 		// log.Println(string(newEvent.LogMessage.Message))
@@ -236,8 +243,12 @@ func (a *kinesisToElastic) processRecord(ctx context.Context, es *elastic.Client
 	values["kinesis_time"] = r.ApproximateArrivalTimestamp.String()
 	values["file_path"] = newEvent.LogMessage.GetSourceInstance()
 
-	_, err = es.Index().
-		Index(esIndex).
+	index, err := a.getIndex(ctx, es, esIndex)
+	if err != nil {
+		return err
+	}
+
+	_, err = index.
 		Type(esIndex).
 		BodyJson(values).
 		Do(ctx)
