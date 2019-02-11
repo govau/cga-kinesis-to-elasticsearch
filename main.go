@@ -10,8 +10,11 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
+	"time"
 
+	"github.com/cloudfoundry-community/firehose-to-syslog/caching"
 	"github.com/cloudfoundry/sonde-go/events"
 	consumer "github.com/harlow/kinesis-consumer"
 	checkpointddb "github.com/harlow/kinesis-consumer/checkpoint/ddb"
@@ -19,12 +22,18 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
+	"github.com/aws/aws-sdk-go/service/dynamodb"
+
 	"github.com/vjeantet/grok"
 
+	realAws "github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/credentials"
+	"github.com/aws/aws-sdk-go/aws/session"
 
 	"github.com/olivere/elastic"
 	aws "github.com/olivere/elastic/aws/v4"
+
+	cfclient "github.com/cloudfoundry-community/go-cfclient"
 )
 
 var (
@@ -56,8 +65,41 @@ type kinesisToElastic struct {
 
 	Grok *grok.Grok
 
+	CFClients map[string]caching.CFSimpleClient
+
 	Mappings map[string]interface{}
 	indices  map[string]*elastic.IndexService
+
+	cfCachesMU sync.Mutex
+	cfCaches   map[string]*caching.CacheLazyFill
+}
+
+func (a *kinesisToElastic) getCFCache(origin string) (*caching.CacheLazyFill, error) {
+	a.cfCachesMU.Lock()
+	defer a.cfCachesMU.Unlock()
+
+	rv, ok := a.cfCaches[origin]
+	if ok {
+		return rv, nil
+	}
+
+	client, ok := a.CFClients[origin]
+	if !ok {
+		return nil, errors.New("origin not recoginised")
+	}
+
+	rv = caching.NewCacheLazyFill(client, &DynamoCacheStore{
+		Client:    dynamodb.New(session.New(realAws.NewConfig())),
+		Origin:    origin,
+		TableName: a.Table,
+	}, &caching.CacheLazyFillConfig{
+		CacheInvalidateTTL: time.Hour * 6,
+		IgnoreMissingApps:  true,
+		StripAppSuffixes:   []string{"-venerable", "-blue", "-green"},
+	})
+	a.cfCaches[origin] = rv
+
+	return rv, nil
 }
 
 func (a *kinesisToElastic) RunForever(parentCtx context.Context) error {
@@ -194,6 +236,26 @@ func (a *kinesisToElastic) getIndex(ctx context.Context, es *elastic.Client, ind
 	return rv, nil
 }
 
+func (a *kinesisToElastic) augmentWithAppInfo(values map[string]string, appGUID, env string) error {
+	cs, err := a.getCFCache(env)
+	if err != nil {
+		return err
+	}
+	app, err := cs.GetApp(appGUID)
+	if err != nil {
+		return err
+	}
+
+	values["@cf.app"] = app.Name
+	values["@cf.app_id"] = app.Guid
+	values["@cf.space"] = app.SpaceName
+	values["@cf.space_id"] = app.SpaceGuid
+	values["@cf.org"] = app.OrgName
+	values["@cf.org_id"] = app.OrgGuid
+
+	return nil
+}
+
 func (a *kinesisToElastic) processRecord(ctx context.Context, es *elastic.Client, r *consumer.Record) error {
 	var newEvent events.Envelope
 	var values map[string]string
@@ -242,6 +304,15 @@ func (a *kinesisToElastic) processRecord(ctx context.Context, es *elastic.Client
 
 	values["kinesis_time"] = r.ApproximateArrivalTimestamp.String()
 	values["file_path"] = newEvent.LogMessage.GetSourceInstance()
+	values["@cf.env"] = newEvent.GetOrigin()
+
+	switch {
+	case values["rtr_app_id"] != "":
+		err = a.augmentWithAppInfo(values, values["rtr_app_id"], newEvent.GetOrigin())
+		if err != nil {
+			return err
+		}
+	}
 
 	index, err := a.getIndex(ctx, es, esIndex)
 	if err != nil {
@@ -299,6 +370,24 @@ func envWithDefault(name, defaultValue string) string {
 	return rv
 }
 
+func mustCreateSimpleClients(origins []string) map[string]caching.CFSimpleClient {
+	rv := make(map[string]caching.CFSimpleClient)
+	for _, o := range origins {
+		cfClient, err := cfclient.NewClient(&cfclient.Config{
+			ApiAddress:   fmt.Sprintf("https://api.system.%s", o),
+			ClientID:     mustEnv(fmt.Sprintf("%s_CLIENT_ID", strings.Replace(o, ".", "_", -1))),
+			ClientSecret: mustEnv(fmt.Sprintf("%s_CLIENT_SECRET", strings.Replace(o, ".", "_", -1))),
+		})
+		if err != nil {
+			panic(err)
+		}
+		rv[o] = &caching.CFClientAdapter{
+			CF: cfClient,
+		}
+	}
+	return rv
+}
+
 func main() {
 	err := (&kinesisToElastic{
 		App:                mustEnv("APP_NAME"),
@@ -315,6 +404,8 @@ func main() {
 		ESIndices:   []string{"linux_logs", "gorouter_access", "bosh_director", "var_vcap_sys_log"},
 
 		MetricsListen: envWithDefault("METRICS_LISTEN", ":8080"),
+
+		CFClients: mustCreateSimpleClients(strings.Split(os.Getenv("ALLOWED_ORIGINS"), ",")),
 
 		Grok: mustGrok(&grok.Config{
 			Patterns: map[string]string{

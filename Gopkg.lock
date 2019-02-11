@@ -2,6 +2,22 @@
 
 
 [[projects]]
+  branch = "master"
+  digest = "1:ef4eaf0b9b15b3f5e5afaf6a52303c39d46a9c3b6d13d0d81e4b785002606692"
+  name = "code.cloudfoundry.org/gofileutils"
+  packages = ["fileutils"]
+  pruneopts = "UT"
+  revision = "4d0c80011a0f37da1711c184028bc40137cd45af"
+
+[[projects]]
+  digest = "1:55388fd080150b9a072912f97b1f5891eb0b50df43401f8b75fb4273d3fec9fc"
+  name = "github.com/Masterminds/semver"
+  packages = ["."]
+  pruneopts = "UT"
+  revision = "c7af12943936e8c39859482e61f0574c2fd7fc75"
+  version = "v1.4.2"
+
+[[projects]]
   digest = "1:5ce63d76623da47a56288f1d1619f47ab15932779c0b9740a32a7a681094bfcc"
   name = "github.com/aws/aws-sdk-go"
   packages = [
@@ -54,6 +70,30 @@
   packages = ["quantile"]
   pruneopts = "UT"
   revision = "3a771d992973f24aa725d07868b467d1ddfceafb"
+
+[[projects]]
+  digest = "1:0f98f59e9a2f4070d66f0c9c39561f68fcd1dc837b22a852d28d0003aebd1b1e"
+  name = "github.com/boltdb/bolt"
+  packages = ["."]
+  pruneopts = "UT"
+  revision = "2f1ce7a837dcb8da3ec595b1dac9d0632f0f99e8"
+  version = "v1.3.1"
+
+[[projects]]
+  digest = "1:832c1c4d62b1e1a912a74ece5a3078c4a31177209c8c308cb7667866be23c2af"
+  name = "github.com/cloudfoundry-community/firehose-to-syslog"
+  packages = ["caching"]
+  pruneopts = "UT"
+  revision = "b88def89e19a52e9c00bc11494dfdf68244b6602"
+  version = "5.1.0"
+
+[[projects]]
+  branch = "master"
+  digest = "1:a965e93173d9b30de4cc01c4a2aaaaa0478ece976f56dabb6e662800abf21011"
+  name = "github.com/cloudfoundry-community/go-cfclient"
+  packages = ["."]
+  pruneopts = "UT"
+  revision = "f136f9222381e2fea5099f62e4b751dcb660ff82"
 
 [[projects]]
   branch = "master"
@@ -201,6 +241,14 @@
   revision = "b1a0a9a36d7453ba0f62578b99712f3a6c5f82d1"
 
 [[projects]]
+  digest = "1:274f67cb6fed9588ea2521ecdac05a6d62a8c51c074c1fccc6a49a40ba80e925"
+  name = "github.com/satori/go.uuid"
+  packages = ["."]
+  pruneopts = "UT"
+  revision = "f58768cc1a7a7e77a3bd49e98cdd21419399b6a3"
+  version = "v1.2.0"
+
+[[projects]]
   digest = "1:42259151197e538e2f2fe592ec5a457233c9f8207e8f368b2eaea854a8ae034b"
   name = "github.com/vjeantet/grok"
   packages = ["."]
@@ -208,11 +256,73 @@
   revision = "ce01e59abcf6fbc9833b7deb5e4b8ee1769bcc53"
   version = "v1.0.0"
 
+[[projects]]
+  branch = "master"
+  digest = "1:f8b491a7c25030a895a0e579742d07136e6958e77ef2d46e769db8eec4e58fcd"
+  name = "golang.org/x/net"
+  packages = [
+    "context",
+    "context/ctxhttp",
+  ]
+  pruneopts = "UT"
+  revision = "65e2d4e15006aab9813ff8769e768bbf4bb667a0"
+
+[[projects]]
+  branch = "master"
+  digest = "1:27b7d9c947baf5e456b4a461b3fc4fa94dcd95b72e3c136b9f9933484d252d0f"
+  name = "golang.org/x/oauth2"
+  packages = [
+    ".",
+    "clientcredentials",
+    "internal",
+  ]
+  pruneopts = "UT"
+  revision = "99b60b757ec124ebb7d6b7e97f153b19c10ce163"
+
+[[projects]]
+  branch = "master"
+  digest = "1:8b466798e96432c23185ca32826702885299f94eb644c9a8dedb79771dff383a"
+  name = "golang.org/x/sys"
+  packages = ["unix"]
+  pruneopts = "UT"
+  revision = "3b5209105503162ded1863c307ac66fec31120dd"
+
+[[projects]]
+  digest = "1:6f3bd49ddf2e104e52062774d797714371fac1b8bddfd8e124ce78e6b2264a10"
+  name = "google.golang.org/appengine"
+  packages = [
+    "internal",
+    "internal/base",
+    "internal/datastore",
+    "internal/log",
+    "internal/remote_api",
+    "internal/urlfetch",
+    "urlfetch",
+  ]
+  pruneopts = "UT"
+  revision = "e9657d882bb81064595ca3b56cbe2546bbabf7b1"
+  version = "v1.4.0"
+
+[[projects]]
+  branch = "v2"
+  digest = "1:4d2e5a73dc1500038e504a8d78b986630e3626dc027bc030ba5c75da257cdb96"
+  name = "gopkg.in/yaml.v2"
+  packages = ["."]
+  pruneopts = "UT"
+  revision = "51d6538a90f86fe93ac480b35f37b2be17fef232"
+
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
   input-imports = [
+    "github.com/aws/aws-sdk-go/aws",
     "github.com/aws/aws-sdk-go/aws/credentials",
+    "github.com/aws/aws-sdk-go/aws/session",
+    "github.com/aws/aws-sdk-go/service/dynamodb",
+    "github.com/aws/aws-sdk-go/service/dynamodb/dynamodbattribute",
+    "github.com/aws/aws-sdk-go/service/dynamodb/dynamodbiface",
+    "github.com/cloudfoundry-community/firehose-to-syslog/caching",
+    "github.com/cloudfoundry-community/go-cfclient",
     "github.com/cloudfoundry/sonde-go/events",
     "github.com/harlow/kinesis-consumer",
     "github.com/harlow/kinesis-consumer/checkpoint/ddb",

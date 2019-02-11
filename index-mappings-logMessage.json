@@ -9,6 +9,10 @@
 					"type": "object",
 					"dynamic": true,
 					"properties": {
+						"env": {
+							"type": "keyword",
+							"index": true
+						},
 						"app": {
 							"type": "keyword",
 							"index": true
