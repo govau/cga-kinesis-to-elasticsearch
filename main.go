@@ -376,8 +376,8 @@ func mustCreateSimpleClients(origins []string) map[string]caching.CFSimpleClient
 		if o != "" {
 			cfClient, err := cfclient.NewClient(&cfclient.Config{
 				ApiAddress:   fmt.Sprintf("https://api.system.%s", o),
-				ClientID:     mustEnv(fmt.Sprintf("%s_CLIENT_ID", strings.Replace(o, ".", "_", -1))),
-				ClientSecret: mustEnv(fmt.Sprintf("%s_CLIENT_SECRET", strings.Replace(o, ".", "_", -1))),
+				ClientID:     mustEnv(fmt.Sprintf("%s_CLIENT_ID", strings.ToUpper(strings.Replace(o, ".", "_", -1)))),
+				ClientSecret: mustEnv(fmt.Sprintf("%s_CLIENT_SECRET", strings.ToUpper(strings.Replace(o, ".", "_", -1)))),
 			})
 			if err != nil {
 				panic(err)
