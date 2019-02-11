@@ -373,16 +373,18 @@ func envWithDefault(name, defaultValue string) string {
 func mustCreateSimpleClients(origins []string) map[string]caching.CFSimpleClient {
 	rv := make(map[string]caching.CFSimpleClient)
 	for _, o := range origins {
-		cfClient, err := cfclient.NewClient(&cfclient.Config{
-			ApiAddress:   fmt.Sprintf("https://api.system.%s", o),
-			ClientID:     mustEnv(fmt.Sprintf("%s_CLIENT_ID", strings.Replace(o, ".", "_", -1))),
-			ClientSecret: mustEnv(fmt.Sprintf("%s_CLIENT_SECRET", strings.Replace(o, ".", "_", -1))),
-		})
-		if err != nil {
-			panic(err)
-		}
-		rv[o] = &caching.CFClientAdapter{
-			CF: cfClient,
+		if o != "" {
+			cfClient, err := cfclient.NewClient(&cfclient.Config{
+				ApiAddress:   fmt.Sprintf("https://api.system.%s", o),
+				ClientID:     mustEnv(fmt.Sprintf("%s_CLIENT_ID", strings.Replace(o, ".", "_", -1))),
+				ClientSecret: mustEnv(fmt.Sprintf("%s_CLIENT_SECRET", strings.Replace(o, ".", "_", -1))),
+			})
+			if err != nil {
+				panic(err)
+			}
+			rv[o] = &caching.CFClientAdapter{
+				CF: cfClient,
+			}
 		}
 	}
 	return rv
