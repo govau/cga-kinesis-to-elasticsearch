@@ -85,7 +85,7 @@ func (a *kinesisToElastic) getCFCache(origin string) (*caching.CacheLazyFill, er
 
 	client, ok := a.CFClients[origin]
 	if !ok {
-		return nil, errors.New("origin not recoginised")
+		return nil, fmt.Errorf("origin %s not recognised", origin)
 	}
 
 	rv = caching.NewCacheLazyFill(client, &DynamoCacheStore{
@@ -310,7 +310,7 @@ func (a *kinesisToElastic) processRecord(ctx context.Context, es *elastic.Client
 	case values["rtr_app_id"] != "":
 		err = a.augmentWithAppInfo(values, values["rtr_app_id"], newEvent.GetOrigin())
 		if err != nil {
-			return err
+			log.Println("ignoring:", err)
 		}
 	}
 
