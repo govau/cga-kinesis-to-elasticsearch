@@ -78,6 +78,10 @@ func (a *kinesisToElastic) getCFCache(origin string) (*caching.CacheLazyFill, er
 	a.cfCachesMU.Lock()
 	defer a.cfCachesMU.Unlock()
 
+	if a.cfCaches == nil {
+		a.cfCaches = make(map[string]*caching.CacheLazyFill)
+	}
+
 	rv, ok := a.cfCaches[origin]
 	if ok {
 		return rv, nil
