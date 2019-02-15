@@ -296,9 +296,15 @@ func (a *kinesisToElastic) processRecord(ctx context.Context, es *elastic.Client
 			return err
 		}
 		esIndex = "var_vcap_sys_log-" + dateStamp
+	case newEvent.GetTags()["source_id"] == "gorouter":
+		values, err = a.Grok.Parse("%{GENERIC}", string(newEvent.LogMessage.Message))
+		if err != nil {
+			return err
+		}
+		esIndex = "gorouter-" + dateStamp
 	default:
-		bb, _ := json.Marshal(newEvent)
-		log.Println(string(bb))
+		//bb, _ := json.Marshal(newEvent)
+		//log.Println(string(bb))
 		return nil
 	}
 
@@ -307,6 +313,11 @@ func (a *kinesisToElastic) processRecord(ctx context.Context, es *elastic.Client
 	values["@cf.env"] = newEvent.GetOrigin()
 
 	switch {
+	case newEvent.LogMessage.GetAppId() != "":
+		err = a.augmentWithAppInfo(values, newEvent.LogMessage.GetAppId(), newEvent.GetOrigin())
+		if err != nil {
+			log.Println("ignoring:", err)
+		}
 	case values["rtr_app_id"] != "":
 		err = a.augmentWithAppInfo(values, values["rtr_app_id"], newEvent.GetOrigin())
 		if err != nil {
