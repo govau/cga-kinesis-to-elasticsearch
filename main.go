@@ -297,7 +297,7 @@ func (a *kinesisToElastic) processRecord(ctx context.Context, es *elastic.Client
 		}
 		esIndex = "var_vcap_sys_log-" + dateStamp
 	default:
-		// log.Println(newEvent.LogMessage.GetSourceInstance())
+		log.Println(newEvent.LogMessage.GetSourceInstance())
 		// log.Println(string(newEvent.LogMessage.Message))
 		return nil
 	}
