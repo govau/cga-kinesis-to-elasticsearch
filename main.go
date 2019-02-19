@@ -63,6 +63,7 @@ type kinesisToElastic struct {
 	ESsecretkey        string
 	MetricsListen      string
 	DaysToKeep         int
+	BatchWorkers       int
 
 	Grok *grok.Grok
 
@@ -185,7 +186,7 @@ func (a *kinesisToElastic) RunForever(parentCtx context.Context) error {
 		}
 	}()
 
-	bulkService, err := client.BulkProcessor().FlushInterval(time.Minute).Workers(4).Do(ctx)
+	bulkService, err := client.BulkProcessor().FlushInterval(time.Minute).Workers(a.BatchWorkers).Do(ctx)
 	if err != nil {
 		return err
 	}
@@ -478,7 +479,8 @@ func main() {
 
 		MetricsListen: envWithDefault("METRICS_LISTEN", ":8080"),
 
-		DaysToKeep: mustInt(envWithDefault("DAYS_TO_KEEP", "3")),
+		DaysToKeep:   mustInt(envWithDefault("DAYS_TO_KEEP", "3")),
+		BatchWorkers: mustInt(envWithDefault("ES_BATCH_WORKERS", "6")), // perhaps 2x the number of shards is a good amount?
 
 		CFClients: mustCreateSimpleClients(strings.Split(os.Getenv("ALLOWED_ORIGINS"), ",")),
 
