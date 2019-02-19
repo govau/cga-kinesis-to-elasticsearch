@@ -2,13 +2,13 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -61,14 +61,14 @@ type kinesisToElastic struct {
 	ESaccesskey        string
 	ESsecretkey        string
 	MetricsListen      string
-	ESIndices          []string
+	DaysToKeep         int
 
 	Grok *grok.Grok
 
 	CFClients map[string]caching.CFSimpleClient
 
-	Mappings map[string]interface{}
-	indices  map[string]*elastic.IndexService
+	indices   map[string]*elastic.IndexService
+	indicesMU sync.Mutex
 
 	cfCachesMU sync.Mutex
 	cfCaches   map[string]*caching.CacheLazyFill
@@ -167,6 +167,16 @@ func (a *kinesisToElastic) RunForever(parentCtx context.Context) error {
 		}
 	}()
 
+	go func() {
+		for {
+			err := a.deleteOldIndices(ctx, client)
+			if err != nil {
+				log.Println("error deleting old indices, will try again tomorrow:", err)
+			}
+			time.Sleep(time.Hour * 24)
+		}
+	}()
+
 	// scan stream
 	return c.Scan(ctx, func(r *consumer.Record) consumer.ScanStatus {
 		err := a.processRecord(ctx, client, r)
@@ -179,6 +189,38 @@ func (a *kinesisToElastic) RunForever(parentCtx context.Context) error {
 		return consumer.ScanStatus{Error: err}
 	})
 
+}
+
+func (a *kinesisToElastic) deleteOldIndices(ctx context.Context, client *elastic.Client) error {
+	cutoff := time.Now().Add(time.Hour * 24 * time.Duration(a.DaysToKeep)).Format("2006-01-02")
+
+	log.Println("deleting indices that are older than", cutoff)
+
+	indices, err := client.IndexNames()
+	if err != nil {
+		return err
+	}
+
+	for _, iname := range indices {
+		if len(iname) >= len(cutoff) {
+			if iname[len(iname)-(1+len(cutoff)):] >= cutoff {
+				log.Println("keeping", iname)
+				continue
+			}
+		}
+
+		log.Println("dropping", iname)
+		_, err = client.DeleteIndex(iname).Do(ctx)
+		if err != nil {
+			return err
+		}
+
+		a.indicesMU.Lock()
+		delete(a.indices, iname)
+		a.indicesMU.Unlock()
+	}
+
+	return nil
 }
 
 func (a *kinesisToElastic) createElasticSearchClient(ctx context.Context) (*elastic.Client, error) {
@@ -218,6 +260,9 @@ func (a *kinesisToElastic) createElasticSearchClient(ctx context.Context) (*elas
 
 // not thread safe
 func (a *kinesisToElastic) getIndex(ctx context.Context, es *elastic.Client, indexName string) (*elastic.IndexService, error) {
+	a.indicesMU.Lock()
+	defer a.indicesMU.Unlock()
+
 	rv, ok := a.indices[indexName]
 	if ok {
 		return rv, nil
@@ -351,22 +396,6 @@ func (a *kinesisToElastic) processRecord(ctx context.Context, es *elastic.Client
 	return nil
 }
 
-func mustParseJSON(p string) map[string]interface{} {
-	mappingFile, err := os.Open(p)
-	if err != nil {
-		panic(err)
-	}
-	defer mappingFile.Close()
-
-	var mappingsJSON map[string]interface{}
-	err = json.NewDecoder(mappingFile).Decode(&mappingsJSON)
-	if err != nil {
-		panic(err)
-	}
-
-	return mappingsJSON
-}
-
 func mustGrok(config *grok.Config) *grok.Grok {
 	rv, err := grok.NewWithConfig(config)
 	if err != nil {
@@ -411,6 +440,14 @@ func mustCreateSimpleClients(origins []string) map[string]caching.CFSimpleClient
 	return rv
 }
 
+func mustInt(s string) int {
+	rv, err := strconv.Atoi(s)
+	if err != nil {
+		panic(err)
+	}
+	return rv
+}
+
 func main() {
 	err := (&kinesisToElastic{
 		App:                mustEnv("APP_NAME"),
@@ -424,9 +461,10 @@ func main() {
 		ESregion:    os.Getenv("ES_AWS_REGION"),
 		ESaccesskey: os.Getenv("ES_AWS_ACCESS_KEY_ID"),
 		ESsecretkey: os.Getenv("ES_AWS_SECRET_ACCESS_KEY"),
-		ESIndices:   []string{"linux_logs", "gorouter_access", "bosh_director", "var_vcap_sys_log"},
 
 		MetricsListen: envWithDefault("METRICS_LISTEN", ":8080"),
+
+		DaysToKeep: mustInt(envWithDefault("DAYS_TO_KEEP", "3")),
 
 		CFClients: mustCreateSimpleClients(strings.Split(os.Getenv("ALLOWED_ORIGINS"), ",")),
 
@@ -441,7 +479,6 @@ func main() {
 				"LINUXMESSAGES":   `%{TIMESTAMP_ISO8601:os_time} %{GREEDYDATA:var_log_messages}`,
 			},
 		}),
-		Mappings: mustParseJSON("index-mappings-logMessage.json"),
 	}).RunForever(context.Background())
 	if err != nil {
 		log.Fatal(err)
