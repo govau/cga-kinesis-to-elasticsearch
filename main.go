@@ -68,7 +68,7 @@ type kinesisToElastic struct {
 
 	CFClients map[string]caching.CFSimpleClient
 
-	indices   map[string]*elastic.IndexService
+	indices   map[string]bool
 	indicesMU sync.Mutex
 
 	cfCachesMU sync.Mutex
@@ -158,7 +158,7 @@ func (a *kinesisToElastic) RunForever(parentCtx context.Context) error {
 	}
 	defer client.Stop()
 
-	a.indices = make(map[string]*elastic.IndexService)
+	a.indices = make(map[string]bool)
 
 	// Run synchronously at startup to free up space in case we're full
 	err = a.deleteOldIndices(ctx, client)
@@ -185,9 +185,16 @@ func (a *kinesisToElastic) RunForever(parentCtx context.Context) error {
 		}
 	}()
 
+	bulkService, err := client.BulkProcessor().FlushInterval(time.Minute).Do(ctx)
+	if err != nil {
+		return err
+	}
+	defer bulkService.Close()
+	defer bulkService.Flush()
+
 	// scan stream
 	return c.Scan(ctx, func(r *consumer.Record) consumer.ScanStatus {
-		err := a.processRecord(ctx, client, r)
+		err := a.processRecord(ctx, client, bulkService, r)
 		if err == nil {
 			successCount.Inc()
 		} else {
@@ -272,30 +279,29 @@ func (a *kinesisToElastic) createElasticSearchClient(ctx context.Context) (*elas
 }
 
 // not thread safe
-func (a *kinesisToElastic) getIndex(ctx context.Context, es *elastic.Client, indexName string) (*elastic.IndexService, error) {
+func (a *kinesisToElastic) ensureIndexExists(ctx context.Context, es *elastic.Client, indexName string) error {
 	a.indicesMU.Lock()
 	defer a.indicesMU.Unlock()
 
-	rv, ok := a.indices[indexName]
+	_, ok := a.indices[indexName]
 	if ok {
-		return rv, nil
+		return nil
 	}
 	exists, err := es.IndexExists(indexName).Do(ctx)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	if !exists {
 		// Create a new index.
 		_, err = es.CreateIndex(indexName).Do(ctx)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		log.Printf("successfully created index %s", indexName)
 	}
 
-	rv = es.Index().Index(indexName)
-	a.indices[indexName] = rv
-	return rv, nil
+	a.indices[indexName] = true
+	return nil
 }
 
 func (a *kinesisToElastic) augmentWithAppInfo(values map[string]string, appGUID, env string) error {
@@ -318,7 +324,7 @@ func (a *kinesisToElastic) augmentWithAppInfo(values map[string]string, appGUID,
 	return nil
 }
 
-func (a *kinesisToElastic) processRecord(ctx context.Context, es *elastic.Client, r *consumer.Record) error {
+func (a *kinesisToElastic) processRecord(ctx context.Context, es *elastic.Client, bs *elastic.BulkProcessor, r *consumer.Record) error {
 	var newEvent events.Envelope
 	var values map[string]string
 	var esIndex string
@@ -393,18 +399,13 @@ func (a *kinesisToElastic) processRecord(ctx context.Context, es *elastic.Client
 		}
 	}
 
-	index, err := a.getIndex(ctx, es, esIndex)
+	err = a.ensureIndexExists(ctx, es, esIndex)
 	if err != nil {
 		return err
 	}
 
-	_, err = index.
-		Type(esIndex).
-		BodyJson(values).
-		Do(ctx)
-	if err != nil {
-		return err
-	}
+	bs.Add(elastic.NewBulkIndexRequest().Index(esIndex).Type(esIndex).Doc(values))
+
 	// continue scanning
 	return nil
 }
