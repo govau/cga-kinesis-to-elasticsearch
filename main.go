@@ -185,7 +185,7 @@ func (a *kinesisToElastic) RunForever(parentCtx context.Context) error {
 		}
 	}()
 
-	bulkService, err := client.BulkProcessor().FlushInterval(time.Minute).Do(ctx)
+	bulkService, err := client.BulkProcessor().FlushInterval(time.Minute).Workers(4).Do(ctx)
 	if err != nil {
 		return err
 	}
