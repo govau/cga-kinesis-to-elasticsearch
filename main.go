@@ -209,7 +209,7 @@ func (a *kinesisToElastic) RunForever(parentCtx context.Context) error {
 var indexNameRegex = regexp.MustCompile(`^[\d]{4}-[\d]{2}-[\d]{2}$`)
 
 func (a *kinesisToElastic) deleteOldIndices(ctx context.Context, client *elastic.Client) error {
-	cutoff := time.Now().Add(time.Hour * 24 * time.Duration(a.DaysToKeep)).Format("2006-01-02")
+	cutoff := time.Now().Add(time.Hour * -24 * time.Duration(a.DaysToKeep)).Format("2006-01-02")
 
 	log.Println("deleting indices that are older than", cutoff)
 
