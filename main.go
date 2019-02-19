@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -159,21 +160,28 @@ func (a *kinesisToElastic) RunForever(parentCtx context.Context) error {
 
 	a.indices = make(map[string]*elastic.IndexService)
 
+	// Run synchronously at startup to free up space in case we're full
+	err = a.deleteOldIndices(ctx, client)
+	if err != nil {
+		return err
+	}
+
+	// and then in background forever more
+	go func() {
+		for {
+			time.Sleep(time.Hour * 24)
+			err := a.deleteOldIndices(ctx, client)
+			if err != nil {
+				log.Println("error deleting old indices, will try again tomorrow:", err)
+			}
+		}
+	}()
+
 	go func() {
 		http.Handle("/metrics", promhttp.Handler())
 		err := http.ListenAndServe(a.MetricsListen, nil)
 		if err != nil {
 			log.Fatal(err)
-		}
-	}()
-
-	go func() {
-		for {
-			err := a.deleteOldIndices(ctx, client)
-			if err != nil {
-				log.Println("error deleting old indices, will try again tomorrow:", err)
-			}
-			time.Sleep(time.Hour * 24)
 		}
 	}()
 
@@ -191,6 +199,8 @@ func (a *kinesisToElastic) RunForever(parentCtx context.Context) error {
 
 }
 
+var indexNameRegex = regexp.MustCompile(`^[\d]{4}-[\d]{2}-[\d]{2}$`)
+
 func (a *kinesisToElastic) deleteOldIndices(ctx context.Context, client *elastic.Client) error {
 	cutoff := time.Now().Add(time.Hour * 24 * time.Duration(a.DaysToKeep)).Format("2006-01-02")
 
@@ -203,9 +213,12 @@ func (a *kinesisToElastic) deleteOldIndices(ctx context.Context, client *elastic
 
 	for _, iname := range indices {
 		if len(iname) >= len(cutoff) {
-			if iname[len(iname)-(1+len(cutoff)):] >= cutoff {
-				log.Println("keeping", iname)
-				continue
+			indexNameSuffix := iname[len(iname)-len(cutoff):]
+			if indexNameRegex.Match([]byte(indexNameSuffix)) {
+				if indexNameSuffix >= cutoff {
+					log.Println("keeping", iname)
+					continue
+				}
 			}
 		}
 
