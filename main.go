@@ -306,6 +306,12 @@ func (a *kinesisToElastic) processRecord(ctx context.Context, es *elastic.Client
 			return err
 		}
 		esIndex = "gorouter-" + dateStamp
+	case newEvent.GetTags()["source_id"] == "doppler_syslog":
+		values, err = a.Grok.Parse("%{GENERIC}", string(newEvent.LogMessage.Message))
+		if err != nil {
+			return err
+		}
+		esIndex = "doppler_syslog-" + dateStamp
 	default:
 		//bb, _ := json.Marshal(newEvent)
 		//log.Println(string(bb))
