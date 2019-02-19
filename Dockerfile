@@ -10,6 +10,4 @@ FROM scratch
 COPY --from=builder /go/bin/cga-kinesis-to-elasticsearch /go/bin/cga-kinesis-to-elasticsearch
 COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 
-COPY index-mappings-logMessage.json /index-mappings-logMessage.json
-
 ENTRYPOINT ["/go/bin/cga-kinesis-to-elasticsearch"]
