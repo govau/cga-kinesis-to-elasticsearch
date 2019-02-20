@@ -383,10 +383,6 @@ func (a *kinesisToElastic) processRecord(ctx context.Context, es *elastic.Client
 		return nil
 	}
 
-	values["kinesis_time"] = r.ApproximateArrivalTimestamp.String()
-	values["file_path"] = newEvent.LogMessage.GetSourceInstance()
-	values["@cf.env"] = newEvent.GetOrigin()
-
 	switch {
 	case newEvent.LogMessage.GetAppId() != "":
 		err = a.augmentWithAppInfo(values, newEvent.LogMessage.GetAppId(), newEvent.GetOrigin())
@@ -400,15 +396,32 @@ func (a *kinesisToElastic) processRecord(ctx context.Context, es *elastic.Client
 		}
 	}
 
+	// convert to generic map so that we can add integers / longs to it that ES won't think are strings
+	genericVals := toGenericMap(values)
+
+	// we store time in millis since epoch
+	// we don't do nano, as this would likely overflow JSON number types (2^53 - 1 is roughly safest max)
+	genericVals["kinesis_time"] = r.ApproximateArrivalTimestamp.UnixNano() / 1000000
+	genericVals["file_path"] = newEvent.LogMessage.GetSourceInstance()
+	genericVals["@cf.env"] = newEvent.GetOrigin()
+
 	err = a.ensureIndexExists(ctx, es, esIndex)
 	if err != nil {
 		return err
 	}
 
-	bs.Add(elastic.NewBulkIndexRequest().Index(esIndex).Type(esIndex).Doc(values))
+	bs.Add(elastic.NewBulkIndexRequest().Index(esIndex).Type(esIndex).Doc(genericVals))
 
 	// continue scanning
 	return nil
+}
+
+func toGenericMap(m map[string]string) map[string]interface{} {
+	rv := make(map[string]interface{})
+	for k, v := range m {
+		rv[k] = v
+	}
+	return rv
 }
 
 func mustGrok(config *grok.Config) *grok.Grok {
