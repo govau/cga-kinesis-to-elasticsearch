@@ -26,7 +26,7 @@ spec:
       containers:
       - name: kinesis-to-elasticsearch
         image: ${REPO}:${TAG}
-        resources: {limits: {memory: "1024Mi", cpu: "1000m"}}
+        resources: {limits: {memory: "1024Mi", cpu: "500m"}}
         envFrom:
         - secretRef: {name: kinesis-to-elasticsearch}
         ports:
