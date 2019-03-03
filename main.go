@@ -342,29 +342,33 @@ func (a *kinesisToElastic) processRecord(ctx context.Context, es *elastic.Client
 
 	switch {
 	case strings.HasPrefix(string(newEvent.LogMessage.GetSourceInstance()), "/var/log/"):
-		values, err = a.Grok.Parse("%{GENERIC}", string(newEvent.LogMessage.Message))
-		if err != nil {
-			return err
-		}
-		esIndex = "linux_logs-" + dateStamp
+		return nil
+		// values, err = a.Grok.Parse("%{GENERIC}", string(newEvent.LogMessage.Message))
+		// if err != nil {
+		// 	return err
+		// }
+		// esIndex = "linux_logs-" + dateStamp
 	case strings.Contains(string(newEvent.LogMessage.GetSourceInstance()), "/var/vcap/sys/log/gorouter/access.log"):
-		values, err = a.Grok.Parse("%{ROUTERACCESS}", string(newEvent.LogMessage.Message))
-		if err != nil {
-			return err
-		}
-		esIndex = "gorouter_access-" + dateStamp
+		return nil
+		// values, err = a.Grok.Parse("%{ROUTERACCESS}", string(newEvent.LogMessage.Message))
+		// if err != nil {
+		// 	return err
+		// }
+		// esIndex = "gorouter_access-" + dateStamp
 	case strings.Contains(string(newEvent.LogMessage.GetSourceInstance()), "/var/vcap/sys/log/director/"):
-		values, err = a.Grok.Parse("%{GENERIC}", string(newEvent.LogMessage.Message))
-		if err != nil {
-			return err
-		}
-		esIndex = "bosh_director-" + dateStamp
+		return nil
+		// values, err = a.Grok.Parse("%{GENERIC}", string(newEvent.LogMessage.Message))
+		// if err != nil {
+		// 	return err
+		// }
+		// esIndex = "bosh_director-" + dateStamp
 	case strings.HasPrefix(string(newEvent.LogMessage.GetSourceInstance()), "/var/vcap/sys/log/"):
-		values, err = a.Grok.Parse("%{GENERIC}", string(newEvent.LogMessage.Message))
-		if err != nil {
-			return err
-		}
-		esIndex = "var_vcap_sys_log-" + dateStamp
+		return nil
+		// values, err = a.Grok.Parse("%{GENERIC}", string(newEvent.LogMessage.Message))
+		// if err != nil {
+		// 	return err
+		// }
+		// esIndex = "var_vcap_sys_log-" + dateStamp
 	case newEvent.GetTags()["source_id"] == "gorouter":
 		values, err = a.Grok.Parse("%{GENERIC}", string(newEvent.LogMessage.Message))
 		if err != nil {
@@ -394,6 +398,9 @@ func (a *kinesisToElastic) processRecord(ctx context.Context, es *elastic.Client
 		if err != nil {
 			log.Println("ignoring:", err)
 		}
+	default:
+		// if we can't identify an app, then, for now, don't bother storing in ES
+		return nil
 	}
 
 	// convert to generic map so that we can add integers / longs to it that ES won't think are strings
