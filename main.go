@@ -303,7 +303,7 @@ func (a *kinesisToElastic) ensureIndexExists(ctx context.Context, es *elastic.Cl
 	}
 	if !exists {
 		// Create a new index.
-		_, err = es.CreateIndex(indexName).BodyJson(map[string]interface{}{
+		_, err = es.CreateIndex(indexName).Do(ctx)/*.BodyJson(map[string]interface{}{
 			"mappings": map[string]interface{}{
 				"_doc": map[string]interface{}{
 					"properties": map[string]interface{}{
@@ -314,7 +314,7 @@ func (a *kinesisToElastic) ensureIndexExists(ctx context.Context, es *elastic.Cl
 					},
 				},
 			},
-		}).Do(ctx)
+		}).Do(ctx)*/
 		if err != nil {
 			return err
 		}
