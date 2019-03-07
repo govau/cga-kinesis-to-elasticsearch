@@ -186,7 +186,7 @@ func (a *kinesisToElastic) RunForever(parentCtx context.Context) error {
 		}
 	}()
 
-	bulkService, err := client.BulkProcessor().FlushInterval(time.Minute).Workers(a.BatchWorkers).After(func(executionId int64, requests []elastic.BulkableRequest, response *elastic.BulkResponse, err error) {
+	bulkService, err := client.BulkProcessor().FlushInterval(time.Second * 15).Workers(a.BatchWorkers).After(func(executionId int64, requests []elastic.BulkableRequest, response *elastic.BulkResponse, err error) {
 		if err != nil {
 			log.Println(err, response)
 		}
@@ -229,15 +229,15 @@ func (a *kinesisToElastic) deleteOldIndices(ctx context.Context, client *elastic
 			continue
 		}
 
-		if len(iname) >= len(cutoff) {
-			indexNameSuffix := iname[len(iname)-len(cutoff):]
-			if indexNameRegex.Match([]byte(indexNameSuffix)) {
-				if indexNameSuffix >= cutoff {
-					log.Println("keeping", iname)
-					continue
-				}
-			}
-		}
+		// if len(iname) >= len(cutoff) {
+		// 	indexNameSuffix := iname[len(iname)-len(cutoff):]
+		// 	if indexNameRegex.Match([]byte(indexNameSuffix)) {
+		// 		if indexNameSuffix >= cutoff {
+		// 			log.Println("keeping", iname)
+		// 			continue
+		// 		}
+		// 	}
+		// }
 
 		log.Println("dropping", iname)
 		_, err = client.DeleteIndex(iname).Do(ctx)
@@ -308,7 +308,8 @@ func (a *kinesisToElastic) ensureIndexExists(ctx context.Context, es *elastic.Cl
 				"_doc": map[string]interface{}{
 					"properties": map[string]interface{}{
 						"kinesis_time": map[string]interface{}{
-							"type": "date",
+							"type":   "date",
+							"format": "epoch_millis",
 						},
 					},
 				},
