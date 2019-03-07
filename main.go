@@ -186,7 +186,11 @@ func (a *kinesisToElastic) RunForever(parentCtx context.Context) error {
 		}
 	}()
 
-	bulkService, err := client.BulkProcessor().FlushInterval(time.Minute).Workers(a.BatchWorkers).Do(ctx)
+	bulkService, err := client.BulkProcessor().FlushInterval(time.Minute).Workers(a.BatchWorkers).After(func(executionId int64, requests []elastic.BulkableRequest, response *elastic.BulkResponse, err error) {
+		if err != nil {
+			log.Println(err, response)
+		}
+	}).Do(ctx)
 	if err != nil {
 		return err
 	}
