@@ -220,15 +220,20 @@ func (a *kinesisToElastic) deleteOldIndices(ctx context.Context, client *elastic
 	}
 
 	for _, iname := range indices {
-		if len(iname) >= len(cutoff) {
-			indexNameSuffix := iname[len(iname)-len(cutoff):]
-			if indexNameRegex.Match([]byte(indexNameSuffix)) {
-				if indexNameSuffix >= cutoff {
-					log.Println("keeping", iname)
-					continue
-				}
-			}
+		if iname == ".kibana" {
+			log.Println("keeping", iname)
+			continue
 		}
+
+		// if len(iname) >= len(cutoff) {
+		// 	indexNameSuffix := iname[len(iname)-len(cutoff):]
+		// 	if indexNameRegex.Match([]byte(indexNameSuffix)) {
+		// 		if indexNameSuffix >= cutoff {
+		// 			log.Println("keeping", iname)
+		// 			continue
+		// 		}
+		// 	}
+		// }
 
 		log.Println("dropping", iname)
 		_, err = client.DeleteIndex(iname).Do(ctx)
@@ -294,7 +299,17 @@ func (a *kinesisToElastic) ensureIndexExists(ctx context.Context, es *elastic.Cl
 	}
 	if !exists {
 		// Create a new index.
-		_, err = es.CreateIndex(indexName).Do(ctx)
+		_, err = es.CreateIndex(indexName).BodyJson(map[string]interface{}{
+			"mappings": map[string]interface{}{
+				"_doc": map[string]interface{}{
+					"properties": map[string]interface{}{
+						"kinesis_time": map[string]interface{}{
+							"type": "date",
+						},
+					},
+				},
+			},
+		}).Do(ctx)
 		if err != nil {
 			return err
 		}
