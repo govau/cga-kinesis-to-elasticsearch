@@ -429,7 +429,7 @@ func (a *kinesisToElastic) processRecord(ctx context.Context, es *elastic.Client
 	// we store time in millis since epoch
 	// we don't do nano, as this would likely overflow JSON number types (2^53 - 1 is roughly safest max)
 	// store as string so that auto-date detection might pick it up
-	genericVals["kinesis_time"] = r.ApproximateArrivalTimestamp.Format("2006/01/02 15:04:05 Z")
+	genericVals["timestamp"] = r.ApproximateArrivalTimestamp.Format("2006/01/02 15:04:05 Z")
 	genericVals["file_path"] = newEvent.LogMessage.GetSourceInstance()
 	genericVals["@cf.env"] = newEvent.GetOrigin()
 
