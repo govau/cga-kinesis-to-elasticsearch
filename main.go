@@ -441,7 +441,7 @@ func (a *kinesisToElastic) processRecord(ctx context.Context, es *elastic.Client
 		return err
 	}
 
-	bs.Add(elastic.NewBulkIndexRequest().Index(esIndex).Type(esIndex).Doc(genericVals))
+	bs.Add(elastic.NewBulkIndexRequest().Index(esIndex).Doc(genericVals))
 
 	// continue scanning
 	return nil
