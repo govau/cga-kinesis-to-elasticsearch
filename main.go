@@ -229,15 +229,15 @@ func (a *kinesisToElastic) deleteOldIndices(ctx context.Context, client *elastic
 			continue
 		}
 
-		// if len(iname) >= len(cutoff) {
-		// 	indexNameSuffix := iname[len(iname)-len(cutoff):]
-		// 	if indexNameRegex.Match([]byte(indexNameSuffix)) {
-		// 		if indexNameSuffix >= cutoff {
-		// 			log.Println("keeping", iname)
-		// 			continue
-		// 		}
-		// 	}
-		// }
+		if len(iname) >= len(cutoff) {
+			indexNameSuffix := iname[len(iname)-len(cutoff):]
+			if indexNameRegex.Match([]byte(indexNameSuffix)) {
+				if indexNameSuffix >= cutoff {
+					log.Println("keeping", iname)
+					continue
+				}
+			}
+		}
 
 		log.Println("dropping", iname)
 		_, err = client.DeleteIndex(iname).Do(ctx)

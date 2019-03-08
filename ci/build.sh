@@ -29,6 +29,9 @@ spec:
         resources: {limits: {memory: "1024Mi", cpu: "500m"}}
         envFrom:
         - secretRef: {name: kinesis-to-elasticsearch}
+        env:
+        - name: DAYS_TO_KEEP
+          value: "30"
         ports:
         - name: http
           containerPort: 8080 # /metrics
