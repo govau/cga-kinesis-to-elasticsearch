@@ -303,18 +303,21 @@ func (a *kinesisToElastic) ensureIndexExists(ctx context.Context, es *elastic.Cl
 	}
 	if !exists {
 		// Create a new index.
-		_, err = es.CreateIndex(indexName).Do(ctx) /*.BodyJson(map[string]interface{}{
+		_, err = es.CreateIndex(indexName).BodyJson(map[string]interface{}{
 			"mappings": map[string]interface{}{
 				"_doc": map[string]interface{}{
+					"date_detection":    true,
+					"numeric_detection": true,
+					"dynamic":           true,
 					"properties": map[string]interface{}{
-						"kinesis_time": map[string]interface{}{
+						"timestamp": map[string]interface{}{
 							"type":   "date",
 							"format": "epoch_millis",
 						},
 					},
 				},
 			},
-		}).Do(ctx)*/
+		}).Do(ctx)
 		if err != nil {
 			return err
 		}
@@ -429,7 +432,7 @@ func (a *kinesisToElastic) processRecord(ctx context.Context, es *elastic.Client
 	// we store time in millis since epoch
 	// we don't do nano, as this would likely overflow JSON number types (2^53 - 1 is roughly safest max)
 	// store as string so that auto-date detection might pick it up
-	genericVals["timestamp"] = r.ApproximateArrivalTimestamp.Format("2006/01/02 15:04:05 Z")
+	genericVals["timestamp"] = r.ApproximateArrivalTimestamp.UnixNano() / 1000000
 	genericVals["file_path"] = newEvent.LogMessage.GetSourceInstance()
 	genericVals["@cf.env"] = newEvent.GetOrigin()
 
