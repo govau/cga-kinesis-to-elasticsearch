@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -405,8 +406,8 @@ func (a *kinesisToElastic) processRecord(ctx context.Context, es *elastic.Client
 		}
 		esIndex = "doppler_syslog-" + dateStamp
 	default:
-		//bb, _ := json.Marshal(newEvent)
-		//log.Println(string(bb))
+		bb, _ := json.Marshal(newEvent)
+		log.Println(string(bb))
 		return nil
 	}
 
@@ -423,6 +424,8 @@ func (a *kinesisToElastic) processRecord(ctx context.Context, es *elastic.Client
 		}
 	default:
 		// if we can't identify an app, then, for now, don't bother storing in ES
+		bb, _ := json.Marshal(newEvent)
+		log.Println(string(bb))
 		return nil
 	}
 
