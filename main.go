@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -406,8 +407,8 @@ func (a *kinesisToElastic) processRecord(ctx context.Context, es *elastic.Client
 		// not really gorouter, but let's keep it simple on the other end
 		esIndex = "gorouter-" + dateStamp
 	default:
-		// bb, _ := json.Marshal(newEvent)
-		// log.Println(string(bb))
+		bb, _ := json.Marshal(newEvent)
+		log.Println("Unsure what it is: ", string(bb))
 		return nil
 	}
 
@@ -424,8 +425,8 @@ func (a *kinesisToElastic) processRecord(ctx context.Context, es *elastic.Client
 		}
 	default:
 		// if we can't identify an app, then, for now, don't bother storing in ES
-		// bb, _ := json.Marshal(newEvent)
-		// log.Println(string(bb))
+		bb, _ := json.Marshal(newEvent)
+		log.Println("Cannot determine app:", string(bb))
 		return nil
 	}
 
