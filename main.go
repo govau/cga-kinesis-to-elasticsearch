@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -17,6 +18,7 @@ import (
 	"time"
 
 	"github.com/cloudfoundry-community/firehose-to-syslog/caching"
+	"github.com/cloudfoundry-community/go-cfclient"
 	"github.com/cloudfoundry/sonde-go/events"
 	consumer "github.com/harlow/kinesis-consumer"
 	checkpointddb "github.com/harlow/kinesis-consumer/checkpoint/ddb"
@@ -34,8 +36,6 @@ import (
 
 	"github.com/olivere/elastic"
 	aws "github.com/olivere/elastic/aws/v4"
-
-	cfclient "github.com/cloudfoundry-community/go-cfclient"
 )
 
 var (
@@ -483,20 +483,44 @@ func envWithDefault(name, defaultValue string) string {
 	return rv
 }
 
+type lazyCFClientAdapter struct {
+	client caching.CFSimpleClient
+	mu     sync.Mutex
+
+	APIAddress   string
+	ClientID     string
+	ClientSecret string
+}
+
+func (lc *lazyCFClientAdapter) DoGet(url string) (io.ReadCloser, error) {
+	lc.mu.Lock()
+	defer lc.mu.Unlock()
+
+	if lc.client == nil {
+		cfClient, err := cfclient.NewClient(&cfclient.Config{
+			ApiAddress:   lc.APIAddress,
+			ClientID:     lc.ClientID,
+			ClientSecret: lc.ClientSecret,
+		})
+		if err != nil {
+			return nil, err
+		}
+		lc.client = &caching.CFClientAdapter{
+			CF: cfClient,
+		}
+	}
+
+	return lc.client.DoGet(url)
+}
+
 func mustCreateSimpleClients(origins []string) map[string]caching.CFSimpleClient {
 	rv := make(map[string]caching.CFSimpleClient)
 	for _, o := range origins {
 		if o != "" {
-			cfClient, err := cfclient.NewClient(&cfclient.Config{
-				ApiAddress:   fmt.Sprintf("https://api.system.%s", o),
+			rv[o] = &lazyCFClientAdapter{
+				APIAddress:   fmt.Sprintf("https://api.system.%s", o),
 				ClientID:     mustEnv(fmt.Sprintf("%s_CLIENT_ID", strings.ToUpper(strings.Replace(o, ".", "_", -1)))),
 				ClientSecret: mustEnv(fmt.Sprintf("%s_CLIENT_SECRET", strings.ToUpper(strings.Replace(o, ".", "_", -1)))),
-			})
-			if err != nil {
-				panic(err)
-			}
-			rv[o] = &caching.CFClientAdapter{
-				CF: cfClient,
 			}
 		}
 	}
